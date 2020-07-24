@@ -3,6 +3,76 @@ import random
 import time
 from functools import wraps
 import ast
+import pygame
+
+
+class Player():
+	def __init__(self, x, y, color):
+		self.x = x
+		self.y = y
+		self.haveball = False
+		self.color = color
+
+	def moveto(self, x,y):
+		self.x = x
+		self.y = y
+
+
+class Animate:
+	def __init__(self, scale):
+		pygame.init()
+		self.width = 128 * scale
+		self.height = 132 * scale
+		self.scale = scale
+		yellow = (255,255, 0)
+		red    = (255,0,0)
+		green  = (0,255,0)
+		blue   = (0,0,255)
+		self.p1 = Player(50,64,yellow)
+		self.p2 = Player(50,64,green)
+		self.p3 = Player(50,64,blue)
+		self.e  = Player(50,64,red)
+
+		self.objects = [self.p1, self.p2, self.p3, self.e]
+
+
+	def start(self, state_list):
+		screen = pygame.display.set_mode([self.width, self.height])
+		running = True
+		tick = 0
+		while running:
+			pygame.time.delay(50)
+			for event in pygame.event.get():
+				if event.type == pygame.QUIT:
+					running = False
+
+			# update player movements
+			state = state_list[tick % len(state_list)]
+			for i, player in enumerate(state):
+				self.objects[i].moveto(player[0], player[1])
+				self.objects[i].haveball = player[2] == 1
+
+
+			screen.fill((0,0,0))
+			for player in self.objects:
+				if player.haveball:
+					pygame.draw.circle(screen, (255,255,255), (player.x * self.scale, player.y * self.scale), 1*self.scale)
+				else:
+					pygame.draw.circle(screen, player.color, (player.x * self.scale, player.y * self.scale), 1*self.scale)	
+
+			pygame.draw.rect(screen, (255,0,0), (0*self.scale, 128*self.scale, 128*self.scale, 1 * self.scale))
+			pygame.display.flip()
+
+			tick += 1
+
+			if tick > len(state_list) or tick > 150:
+				break
+
+		self.stop()
+
+	def stop(self):
+		pygame.quit()
+
 
 
 def memoize(function):
@@ -216,6 +286,8 @@ def play_game(state, gene_set):
 	enemy_speed = 2
 	player_speed = 1
 	
+	state_memory = []
+
 	ticks = 0
 	while True:
 		ticks = ticks+1
@@ -246,6 +318,9 @@ def play_game(state, gene_set):
 		action = p3_gene[ticks]
 		state, lose_flag  = perform_action(state, 3, action, player_speed)
 		state  = np.matrix(state)
+
+		state_memory.append(np.asarray(state))
+
 		if lose_flag:
 			break
 		
@@ -254,7 +329,7 @@ def play_game(state, gene_set):
 	
 	ball_x,ball_y = get_ball_xy(state)
 	score = ball_y
-	return score, state, ticks
+	return score, state, ticks, state_memory
 
 # start_time = time.time()
 
@@ -307,7 +382,7 @@ while True:
 			#state = np.matrix([p1,p2,p3,e]) 
 			state = str([p1,p2,p3,e]) # allows for caching
 
-			score, state, ticks = play_game(state, gene_set)
+			score, state, ticks, state_memory = play_game(state, gene_set)
 			
 			# calculate score
 			ball_x, ball_y = get_ball_xy(state)
@@ -316,6 +391,8 @@ while True:
 			scorelist["index"] = i
 			scorelist["score"] = score
 			scorelist["ball"] = (ball_x,ball_y)
+			scorelist["state_memory"] = state_memory
+
 			scorelist_arr.append(scorelist)
 
 
@@ -414,13 +491,16 @@ while True:
 		while new_pop_size < population_size:
 			for j in top_candidates:
 				candidate_j = j["index"]
-				if roll_percentage(50-epoch/20):
+				mutation_percent = 50 - epoch/20
+				if mutation_percent < 1:
+					mutation_percent = 1
+				if roll_percentage(mutation_percent):
 					t_gene = p1_gene_pool[candidate_j]
-					new_p1g.append(mutate(t_gene,50-epoch/20))
+					new_p1g.append(mutate(t_gene, mutation_percent))
 					t_gene = p2_gene_pool[candidate_j]
-					new_p2g.append(mutate(t_gene,50-epoch/20))
+					new_p2g.append(mutate(t_gene, mutation_percent))
 					t_gene = p3_gene_pool[candidate_j]
-					new_p3g.append(mutate(t_gene,50-epoch/20))
+					new_p3g.append(mutate(t_gene, mutation_percent))
 					new_pop_size += 1
 					if new_pop_size > population_size: break
 			
@@ -438,8 +518,14 @@ while True:
 				
 				# break
 		else:
+			if top_candidates[0]["score"] > prev_top_score and top_candidates[0]["score"] > 80:
+				animate_obj = Animate(4)
+				animate_obj.start(top_candidates[0]["state_memory"])
+
 			prev_top_score = top_candidates[0]["score"]
 			mutation_counter = 0
+
+
 		
 		print epoch, top_candidates[0]["ball"], len(p1_gene_pool), mutation_counter, homo_index1, homo_index2, homo_index3
 
